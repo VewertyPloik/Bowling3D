@@ -1,0 +1,465 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Text Bowling with Achievements & Shop</title>
+<style>
+  body {
+    background: black;
+    color: white;
+    font-family: monospace;
+    text-align: center;
+  }
+  #lane {
+    font-size: 24px;
+    line-height: 1.2;
+    margin: 20px auto;
+    width: 200px;
+    user-select: none;
+  }
+  #timingBarContainer {
+    width: 200px;
+    height: 20px;
+    background: #222;
+    margin: 10px auto;
+    position: relative;
+    border: 1px solid white;
+  }
+  #timingSlider {
+    width: 10px;
+    height: 20px;
+    background: #0f0;
+    position: absolute;
+    left: 0;
+    top: 0;
+  }
+  button {
+    font-size: 16px;
+    padding: 6px 14px;
+    margin: 5px;
+    cursor: pointer;
+  }
+  #info, #scores, #coinsDisplay, #achievements, #frameScores {
+    margin-top: 15px;
+    font-size: 18px;
+  }
+  #difficultyButtons > button, #shop button {
+    margin: 5px;
+  }
+  #frameScores {
+    white-space: pre;
+    font-family: monospace;
+    font-size: 16px;
+  }
+  #shop {
+    margin-top: 20px;
+    border-top: 1px solid white;
+    padding-top: 15px;
+    max-width: 400px;
+    margin-left: auto;
+    margin-right: auto;
+  }
+  .ballItem {
+    display: inline-block;
+    margin: 5px;
+    cursor: pointer;
+    padding: 6px 10px;
+    border: 1px solid white;
+    border-radius: 4px;
+    user-select: none;
+  }
+  .selectedBall {
+    border-color: #0f0;
+    font-weight: bold;
+  }
+  .ballWhite { color: white; }
+  .ballBlue { color: #0af; }
+  .ballGreen { color: #0a0; }
+  .ballRed { color: #f00; }
+  .ballPurple { color: #a0a; }
+  .ballBronze { color: #b56a2e; }
+  .ballPink { color: #f5a; }
+  .ballSilver { color: #ccc; }
+  .ballGold { color: #fc0; }
+  .ballGlowing {
+    background: linear-gradient(45deg, #f00, #00f);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+  #achievementPopup {
+    position: fixed;
+    top: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: #222;
+    border: 2px solid #0f0;
+    padding: 12px 20px;
+    font-size: 20px;
+    font-weight: bold;
+    color: #0f0;
+    display: none;
+    z-index: 100;
+    border-radius: 8px;
+    user-select: none;
+  }
+</style>
+</head>
+<body>
+
+<h1>Text Bowling with Achievements & Shop</h1>
+
+<div id="difficultyButtons">
+  <button onclick="startGame('easy')">Easy</button>
+  <button onclick="startGame('normal')">Normal</button>
+  <button onclick="startGame('hard')">Hard</button>
+</div>
+
+<div id="coinsDisplay">Coins: 0</div>
+
+<div id="lane"></div>
+
+<div id="timingBarContainer">
+  <div id="timingSlider"></div>
+</div>
+<button id="throwBtn" disabled>Throw Ball</button>
+
+<div id="info">Choose difficulty to start.</div>
+<div id="scores">You: 0 | AI: 0</div>
+<div id="frameScores"></div>
+
+<div id="shop">
+  <h3>Ball Shop</h3>
+  <div id="ballList"></div>
+</div>
+
+<div id="achievements"></div>
+
+<div id="achievementPopup"></div>
+
+<script>
+  const laneDiv = document.getElementById('lane');
+  const timingSlider = document.getElementById('timingSlider');
+  const timingBar = document.getElementById('timingBarContainer');
+  const throwBtn = document.getElementById('throwBtn');
+  const infoDiv = document.getElementById('info');
+  const scoresDiv = document.getElementById('scores');
+  const difficultyButtons = document.getElementById('difficultyButtons');
+  const frameScoresDiv = document.getElementById('frameScores');
+  const coinsDisplay = document.getElementById('coinsDisplay');
+  const ballListDiv = document.getElementById('ballList');
+  const achievementPopup = document.getElementById('achievementPopup');
+
+  // Game variables
+  let pins = ['|','|','|','|','|','|','|','|','|','|'];
+  let ballPos = -1;
+  let isThrowing = false;
+  let sliderPos = 0;
+  let sliderDir = 1;
+  const sliderMax = timingBar.clientWidth - timingSlider.clientWidth;
+
+  let playerScore = 0;
+  let aiScore = 0;
+  let playerTurn = true;
+  let gameActive = false;
+  let aiDifficulty = 'normal';
+
+  const totalFrames = 10;
+  let currentFrame = 1;
+
+  let playerFrameScores = [];
+  let aiFrameScores = [];
+
+  // Coins and achievements
+  let coins = 0;
+  let unlockedAchievements = new Set();
+
+  // Balls info: name, cost, CSS class for color
+  const balls = [
+    {name: "White", cost: 0, css: "ballWhite"},
+    {name: "Blue", cost: 40, css: "ballBlue"},
+    {name: "Green", cost: 40, css: "ballGreen"},
+    {name: "Red", cost: 40, css: "ballRed"},
+    {name: "Purple", cost: 40, css: "ballPurple"},
+    {name: "Bronze", cost: 50, css: "ballBronze"},
+    {name: "Pink", cost: 80, css: "ballPink"},
+    {name: "Silver", cost: 120, css: "ballSilver"},
+    {name: "Gold", cost: 150, css: "ballGold"},
+    {name: "Glowing", cost: 175, css: "ballGlowing"},
+  ];
+
+  let selectedBallIndex = 0; // default white ball
+
+  function updateLane() {
+    // Ball color with selected ball CSS class
+    const ballChar = 'o';
+    let ballColorStart = '';
+    let ballColorEnd = '';
+    if(selectedBallIndex !== null) {
+      ballColorStart = `<span class="${balls[selectedBallIndex].css}">`;
+      ballColorEnd = '</span>';
+    }
+
+    let laneStr = '';
+
+    for(let row=0; row<10; row++) {
+      if(row === ballPos) {
+        laneStr += ' '.repeat(9) + ballColorStart + ballChar + ballColorEnd + '\n';
+      } else if(row === 9) {
+        laneStr += '    ' + pins[0] + '\n';
+      } else if(row === 8) {
+        laneStr += '   ' + pins[1] + ' ' + pins[2] + '\n';
+      } else if(row === 7) {
+        laneStr += '  ' + pins[3] + ' ' + pins[4] + ' ' + pins[5] + '\n';
+      } else if(row === 6) {
+        laneStr += ' ' + pins[6] + ' ' + pins[7] + ' ' + pins[8] + ' ' + pins[9] + '\n';
+      } else {
+        laneStr += '\n';
+      }
+    }
+    laneDiv.innerHTML = laneStr.replace(/\n/g, '<br>');
+  }
+
+  function moveSlider() {
+    if(isThrowing || !playerTurn) return;
+    sliderPos += sliderDir * 3;
+    if(sliderPos <= 0) sliderDir = 1;
+    if(sliderPos >= sliderMax) sliderDir = -1;
+    timingSlider.style.left = sliderPos + 'px';
+    requestAnimationFrame(moveSlider);
+  }
+
+  function knockPins(precision, shift) {
+    if(precision >= 0.9) {
+      pins = pins.map(_ => '_');
+      return pins.length;
+    } else {
+      let knocked = 0;
+      for(let i=0; i<pins.length; i++) {
+        if(pins[i] === '|' && Math.abs(i - ballPos) <= 1) {
+          pins[i] = '_';
+          knocked++;
+        }
+      }
+      return knocked;
+    }
+  }
+
+  function animateBall(precision, shift, callback) {
+    let currentRow = -1;
+    function step() {
+      currentRow++;
+      ballPos = currentRow + shift;
+      if(ballPos < 0) ballPos = 0;
+      if(ballPos > 9) ballPos = 9;
+      updateLane();
+      if(currentRow < 9) {
+        setTimeout(step, 100);
+      } else {
+        const knocked = knockPins(precision, shift);
+        callback(knocked);
+      }
+    }
+    step();
+  }
+
+  function showAchievement(text, coinsReward) {
+    if(unlockedAchievements.has(text)) return; // only once
+    unlockedAchievements.add(text);
+    coins += coinsReward;
+    updateCoinsDisplay();
+
+    achievementPopup.textContent = `Achievement Unlocked!\n${text}\n+${coinsReward} coins`;
+    achievementPopup.style.display = 'block';
+    setTimeout(() => {
+      achievementPopup.style.display = 'none';
+    }, 4000);
+  }
+
+  function checkAchievements() {
+    // 1. Win a nail biter: win by <=5 points (20 coins)
+    let diff = Math.abs(playerScore - aiScore);
+    if(diff <= 5 && playerScore > aiScore) {
+      showAchievement("Win a nail biter", 20);
+    }
+
+    // 2. Score 50 points (15 coins)
+    if(playerScore >= 50) {
+      showAchievement("Score 50 points in a game", 15);
+    }
+
+    // 3. Score 60 points (20 coins)
+    if(playerScore >= 60) {
+      showAchievement("Score 60 points in a game", 20);
+    }
+
+    // 4. Score 75 points (30 coins)
+    if(playerScore >= 75) {
+      showAchievement("Score 75 points in a game", 30);
+    }
+
+    // 5. Perfect 100 points (50 coins)
+    if(playerScore === 100) {
+      showAchievement("Perfect 100 Point Game", 50);
+    }
+  }
+
+  function playerThrow() {
+    if(isThrowing) return;
+    isThrowing = true;
+    throwBtn.disabled = true;
+
+    const center = sliderMax / 2;
+    const distFromCenter = Math.abs(sliderPos - center);
+    const maxDist = center;
+    const precision = 1 - (distFromCenter / maxDist);
+    const maxShift = 3;
+    let shift = Math.round((sliderPos - center) / center * maxShift);
+
+    infoDiv.textContent = `You threw with precision ${(precision*100).toFixed(1)}%.`;
+    animateBall(precision, shift, knocked => {
+      playerScore += knocked;
+      playerFrameScores.push(knocked);
+      updateScores();
+      infoDiv.textContent += ` Knocked down ${knocked} pin${knocked !== 1 ? 's' : ''}.`;
+      isThrowing = false;
+      playerTurn = false;
+      if (currentFrame <= totalFrames) {
+        setTimeout(aiThrow, 1500);
+      }
+    });
+  }
+
+  function aiThrow() {
+    throwBtn.disabled = true;
+    infoDiv.textContent = 'AI is throwing...';
+
+    // AI precision + 15% toughness
+    let aiPrecision;
+    if(aiDifficulty === 'easy') aiPrecision = Math.min(1, 0.55 + Math.random() * 0.4);
+    else if(aiDifficulty === 'normal') aiPrecision = Math.min(1, 0.75 + Math.random() * 0.3);
+    else aiPrecision = Math.min(1, 0.95 + Math.random() * 0.15);
+
+    const maxShift = 3;
+    const aiShift = Math.floor((Math.random() - 0.5) * 2 * maxShift);
+
+    animateBall(aiPrecision, aiShift, knocked => {
+      aiScore += knocked;
+      aiFrameScores.push(knocked);
+      updateScores();
+      infoDiv.textContent = `AI knocked down ${knocked} pin${knocked !== 1 ? 's' : ''}.`;
+      setTimeout(() => {
+        if(currentFrame === totalFrames) {
+          endGame();
+        } else {
+          resetRound();
+          playerTurn = true;
+          throwBtn.disabled = false;
+          infoDiv.textContent = `Frame ${currentFrame + 1} - Your turn! Use the timing bar and press Throw Ball.`;
+          currentFrame++;
+          moveSlider();
+        }
+      }, 2000);
+    });
+  }
+
+  function updateScores() {
+    scoresDiv.textContent = `You: ${playerScore} | AI: ${aiScore}`;
+    let playerLine = 'Player: ';
+    let aiLine = 'AI:     ';
+    for(let i=0; i < totalFrames; i++) {
+      playerLine += (playerFrameScores[i] !== undefined ? playerFrameScores[i] : '-') + ' ';
+      aiLine += (aiFrameScores[i] !== undefined ? aiFrameScores[i] : '-') + ' ';
+    }
+    frameScoresDiv.textContent = playerLine + '\n' + aiLine;
+  }
+
+  function resetRound() {
+    pins = ['|','|','|','|','|','|','|','|','|','|'];
+    ballPos = -1;
+    updateLane();
+  }
+
+  function endGame() {
+    gameActive = false;
+    throwBtn.disabled = true;
+
+    // Add win coins by difficulty
+    if(playerScore > aiScore) {
+      let reward = 0;
+      if(aiDifficulty === 'easy') reward = 3;
+      else if(aiDifficulty === 'normal') reward = 10;
+      else reward = 20;
+      coins += reward;
+      infoDiv.textContent = `Game over! You won! +${reward} coins awarded.`;
+    } else if(aiScore > playerScore) {
+      infoDiv.textContent = `Game over! AI won! Better luck next time.`;
+    } else {
+      infoDiv.textContent = `Game over! It's a tie!`;
+    }
+
+    checkAchievements();
+    updateCoinsDisplay();
+
+    resetRound();
+    currentFrame = 1;
+    playerFrameScores = [];
+    aiFrameScores = [];
+  }
+
+  function startGame(diff) {
+    aiDifficulty = diff;
+    playerScore = 0;
+    aiScore = 0;
+    playerTurn = true;
+    gameActive = true;
+    currentFrame = 1;
+    playerFrameScores = [];
+    aiFrameScores = [];
+    resetRound();
+    updateScores();
+    throwBtn.disabled = false;
+    infoDiv.textContent = `Frame 1 - Your turn! Use the timing bar and press Throw Ball.`;
+    moveSlider();
+  }
+
+  function updateCoinsDisplay() {
+    coinsDisplay.textContent = `Coins: ${coins}`;
+  }
+
+  function buyBall(index) {
+    const ball = balls[index];
+    if(coins >= ball.cost) {
+      if(selectedBallIndex === index) return; // already selected
+      coins -= ball.cost;
+      selectedBallIndex = index;
+      updateCoinsDisplay();
+      renderShop();
+      updateLane();
+    } else {
+      alert("Not enough coins!");
+    }
+  }
+
+  function renderShop() {
+    ballListDiv.innerHTML = '';
+    balls.forEach((ball, idx) => {
+      const ballElem = document.createElement('div');
+      ballElem.className = `ballItem ${ball.css}`;
+      if(idx === selectedBallIndex) ballElem.classList.add('selectedBall');
+      ballElem.textContent = `${ball.name} ${ball.cost > 0 ? `(${ball.cost} coins)` : '(Free)'}`;
+      ballElem.onclick = () => buyBall(idx);
+      ballListDiv.appendChild(ballElem);
+    });
+  }
+
+  throwBtn.addEventListener('click', playerThrow);
+
+  // Initialize
+  updateLane();
+  updateCoinsDisplay();
+  renderShop();
+
+</script>
+
+</body>
+</html>
